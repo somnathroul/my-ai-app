@@ -1,0 +1,7 @@
+{
+  "name": "Jyoti Electronics - Billing & Invoicing",
+  "description": "Production-ready, local-first retail billing, GST invoicing, inventory management, and POS system for Jyoti Electronics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
