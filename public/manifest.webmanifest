@@ -1,0 +1,21 @@
+{
+  "name": "JYOTI Kitchen and Home Appliances",
+  "short_name": "JYOTI Billing",
+  "start_url": "/my-ai-app/",
+  "scope": "/my-ai-app/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/my-ai-app/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/my-ai-app/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
