@@ -166,7 +166,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 pb-12">
+      <main className="flex-1 pb-12 print:hidden">
         {activeTab === 'pos' && (
           <POS
             products={products}

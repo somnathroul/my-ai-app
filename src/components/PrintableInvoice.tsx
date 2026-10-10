@@ -9,9 +9,11 @@ import {
   QrCode,
   ShieldCheck,
   RotateCcw,
+  CheckCircle2,
 } from 'lucide-react';
 import { Invoice, StoreSettings } from '../types';
 import { formatCurrency } from '../utils/numberToWords';
+import { downloadInvoicePdf, shareInvoicePdfOrWhatsApp } from '../utils/generateInvoicePdf';
 
 interface PrintableInvoiceProps {
   invoice: Invoice;
@@ -26,9 +28,117 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({
 }) => {
   const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>(settings.printFormat || 'a4');
   const [copied, setCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  const fallbackPrint = () => {
+    const invoiceEl = document.getElementById('printable-invoice');
+    if (!invoiceEl) {
+      downloadInvoicePdf(invoice, settings);
+      return;
+    }
+
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`
+          <!doctype html>
+          <html>
+            <head>
+              <title>${settings.storeName || 'Invoice'} - #${invoice.invoiceNumber}</title>
+              <style>
+                ${Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+                  .map((el) => el.outerHTML)
+                  .join('\n')}
+                body { background: #ffffff !important; margin: 0; padding: 12px; }
+                #printable-invoice { box-shadow: none !important; border: none !important; max-width: 100% !important; width: 100% !important; }
+              </style>
+            </head>
+            <body>
+              ${invoiceEl.outerHTML}
+            </body>
+          </html>
+        `);
+        doc.close();
+        iframe.contentWindow?.focus();
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.print();
+          } catch {}
+          setTimeout(() => {
+            try {
+              document.body.removeChild(iframe);
+            } catch {}
+          }, 3000);
+        }, 250);
+      }
+    } catch (e) {
+      console.warn('Fallback print failed, triggering PDF download:', e);
+      downloadInvoicePdf(invoice, settings);
+    }
+  };
 
   const handlePrint = () => {
-    window.print();
+    setIsPrinting(true);
+    try {
+      window.focus();
+      setTimeout(() => {
+        try {
+          window.print();
+        } catch (innerErr) {
+          console.warn('window.print failed, attempting iframe print:', innerErr);
+          fallbackPrint();
+        } finally {
+          setTimeout(() => setIsPrinting(false), 800);
+        }
+      }, 50);
+    } catch (err) {
+      console.warn('Print call failed:', err);
+      fallbackPrint();
+      setIsPrinting(false);
+    }
+  };
+
+  const handleDownloadPdf = () => {
+    try {
+      setIsDownloading(true);
+      downloadInvoicePdf(invoice, settings);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      alert('Could not download PDF: ' + (err as Error).message);
+    } finally {
+      setTimeout(() => setIsDownloading(false), 1200);
+    }
+  };
+
+  const handleShareBill = async () => {
+    try {
+      setIsSharing(true);
+      const res = await shareInvoicePdfOrWhatsApp(invoice, settings);
+      // If desktop browser fallback opened WhatsApp Web, also download the PDF
+      // so the user can easily drag and attach the bill PDF to WhatsApp chat!
+      if (res.method === 'whatsapp-fallback') {
+        if (typeof navigator !== 'undefined' && (!navigator.share || !navigator.canShare)) {
+          downloadInvoicePdf(invoice, settings);
+        }
+      }
+    } catch (err) {
+      console.error('Error sharing bill:', err);
+      handleShareWhatsApp();
+    } finally {
+      setTimeout(() => setIsSharing(false), 1200);
+    }
   };
 
   const handleShareWhatsApp = () => {
@@ -62,9 +172,9 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 print:p-0 print:static print:bg-white">
+    <div className="print-dialog-backdrop fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 print:p-0 print:static print:bg-white print:overflow-visible">
       {/* Top Floating Action Bar (Hidden during print) */}
-      <div className="no-print fixed top-3 left-1/2 -translate-x-1/2 z-60 bg-slate-900/90 text-white backdrop-blur-md px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2 sm:gap-4 border border-slate-700/80 max-w-[95vw] overflow-x-auto">
+      <div className="no-print fixed top-3 left-1/2 -translate-x-1/2 z-60 bg-slate-900/90 text-white backdrop-blur-md px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2 sm:gap-3 border border-slate-700/80 max-w-[95vw] overflow-x-auto">
         <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
           <button
             type="button"
@@ -86,30 +196,50 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({
           </button>
         </div>
 
+        {/* Feature 1: Clearly visible Download Bill Button */}
+        <button
+          id="btn-download-bill-pdf"
+          type="button"
+          onClick={handleDownloadPdf}
+          disabled={isDownloading}
+          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-75 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-md shadow-indigo-500/30 cursor-pointer"
+          title="Download formatted A4 Tax Invoice PDF"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>{isDownloading ? 'Downloading...' : 'Download Bill'}</span>
+        </button>
+
+        {/* Feature 2: Improved WhatsApp / Web Share Button with PDF File Support */}
+        <button
+          id="btn-share-whatsapp"
+          type="button"
+          onClick={handleShareBill}
+          disabled={isSharing}
+          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-75 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-md shadow-emerald-500/30 cursor-pointer"
+          title="Share formatted PDF bill via WhatsApp or Web Share"
+        >
+          <Share2 className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{isSharing ? 'Sharing...' : 'Share on WhatsApp'}</span>
+          <span className="sm:hidden">{isSharing ? '...' : 'Share'}</span>
+        </button>
+
         <button
           id="btn-print-invoice"
           type="button"
           onClick={handlePrint}
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-md shadow-blue-500/30 cursor-pointer"
+          disabled={isPrinting}
+          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-75 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-md shadow-blue-500/30 cursor-pointer"
+          title="Print invoice via printer"
         >
           <Printer className="w-3.5 h-3.5" />
-          <span>Print Now</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleShareWhatsApp}
-          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-xl transition cursor-pointer"
-          title="Share receipt summary to customer's WhatsApp"
-        >
-          <Share2 className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">WhatsApp</span>
+          <span>{isPrinting ? 'Printing...' : 'Print Now'}</span>
         </button>
 
         <button
           type="button"
           onClick={handleCopySummary}
           className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-2 rounded-xl transition cursor-pointer"
+          title="Copy short text summary"
         >
           <FileText className="w-3.5 h-3.5" />
           <span>{copied ? 'Copied!' : 'Copy'}</span>
@@ -127,14 +257,70 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({
       </div>
 
       {/* Invoice Document Container */}
-      <div className="mt-14 mb-8 print:mt-0 print:mb-0 w-full flex justify-center">
+      <div className="mt-14 mb-8 print:mt-0 print:mb-0 w-full flex flex-col items-center">
+        {/* Payment Completed Callout Banner */}
+        <div className="no-print w-full max-w-[840px] mb-3 bg-slate-900 border border-slate-700/80 rounded-2xl p-3.5 sm:p-4 text-white flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-sm text-white">Payment Recorded Successfully</span>
+                <span className="font-mono text-xs bg-slate-800 text-blue-400 px-2 py-0.5 rounded font-semibold border border-slate-700">
+                  #{invoice.invoiceNumber}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Customer: <span className="font-semibold text-white">{invoice.customer.name}</span> • Total:{' '}
+                <span className="font-bold text-emerald-400 font-mono">
+                  ₹{invoice.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>{' '}
+                ({invoice.payment.mode})
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+            <button
+              id="banner-btn-print-invoice"
+              type="button"
+              onClick={handlePrint}
+              disabled={isPrinting}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-75 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-md shadow-blue-600/30 cursor-pointer"
+              title="Print invoice via printer"
+            >
+              <Printer className="w-4 h-4" />
+              <span>{isPrinting ? 'Printing...' : 'Print Now'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isDownloading}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-75 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-md shadow-indigo-600/30 cursor-pointer"
+              title="Download PDF format"
+            >
+              <Download className="w-4 h-4" />
+              <span>{isDownloading ? 'Downloading...' : 'Download Bill'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleShareBill}
+              disabled={isSharing}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-75 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-md shadow-emerald-600/30 cursor-pointer"
+              title="Share PDF or WhatsApp message"
+            >
+              <Share2 className="w-4 h-4" />
+              <span>{isSharing ? 'Sharing...' : 'Share on WhatsApp'}</span>
+            </button>
+          </div>
+        </div>
         {printFormat === 'a4' ? (
           /* =========================================================================
              A4 STANDARD TAX INVOICE FORMAT
              ========================================================================= */
           <div
             id="printable-invoice"
-            className="w-full max-w-[840px] bg-white text-slate-900 p-6 sm:p-8 rounded-xl shadow-2xl border border-slate-300 font-sans print:p-4 print:shadow-none print:border-none print:max-w-none"
+            className="w-full max-w-[840px] bg-white text-slate-900 p-6 sm:p-8 rounded-xl shadow-2xl border border-slate-300 font-sans print:p-0 print:shadow-none print:border-none print:max-w-none"
           >
             {/* Tax Invoice Header Tag */}
             <div className="border-b-2 border-slate-900 pb-3 mb-4">
@@ -148,7 +334,7 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-3 pt-1">
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-950 uppercase">
-                    {settings.storeName || 'Jyoti Electronics'}
+                    {settings.storeName || 'JYOTI Kitchen and Home Appliances'}
                   </h1>
                   {settings.tagline && (
                     <p className="text-xs sm:text-sm font-semibold text-blue-800 tracking-wide">
@@ -462,12 +648,12 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({
              ========================================================================= */
           <div
             id="printable-invoice"
-            className="w-full max-w-[340px] bg-white text-slate-950 p-4 rounded-xl shadow-2xl border border-slate-300 font-mono text-xs print:p-2 print:shadow-none print:border-none print:max-w-none print:w-[80mm]"
+            className="w-full max-w-[340px] bg-white text-slate-950 p-4 rounded-xl shadow-2xl border border-slate-300 font-mono text-xs print:p-0 print:shadow-none print:border-none print:max-w-none print:w-[80mm]"
           >
             {/* Header */}
             <div className="text-center pb-2 border-b border-dashed border-slate-400">
               <h1 className="text-lg font-black uppercase tracking-tight text-slate-900">
-                {settings.storeName || 'Jyoti Electronics'}
+                {settings.storeName || 'JYOTI Kitchen and Home Appliances'}
               </h1>
               {settings.tagline && <p className="text-[11px] font-bold">{settings.tagline}</p>}
               {[settings.address, settings.city].filter(Boolean).length > 0 && (

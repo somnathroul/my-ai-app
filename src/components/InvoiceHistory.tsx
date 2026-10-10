@@ -7,6 +7,7 @@ import {
   Printer,
   Ban,
   Share2,
+  Download,
   FileSpreadsheet,
   ArrowUpDown,
   Filter,
@@ -17,6 +18,7 @@ import {
   Phone,
 } from 'lucide-react';
 import { Invoice, Product, StoreSettings } from '../types';
+import { downloadInvoicePdf, shareInvoicePdfOrWhatsApp } from '../utils/generateInvoicePdf';
 
 interface InvoiceHistoryProps {
   invoices: Invoice[];
@@ -430,6 +432,24 @@ export const InvoiceHistory: React.FC<InvoiceHistoryProps> = ({
                         title="View / Re-Print Invoice"
                       >
                         <Printer className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => downloadInvoicePdf(inv, settings)}
+                        className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                        title="Download Bill PDF"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => shareInvoicePdfOrWhatsApp(inv, settings)}
+                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                        title="Share Bill on WhatsApp / PDF"
+                      >
+                        <Share2 className="w-4 h-4" />
                       </button>
 
                       {inv.status === 'active' && (
